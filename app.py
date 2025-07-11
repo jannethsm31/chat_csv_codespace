@@ -4,7 +4,7 @@ import io
 import time
 import contextlib
 import logging
-from flask import Flask, request, render_template, session, abort, g
+from flask import Flask, redirect, request, render_template, session, abort, g, url_for
 import pandas as pd
 from groq import Groq
 from dotenv import load_dotenv
@@ -27,14 +27,15 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10MB
 app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
 
-# Cliente Groq (singleton)
-groq_client = None
+# # Cliente Groq (singleton)
+# groq_client = None
 
 def get_groq_client():
-    global groq_client
-    if groq_client is None:
-        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    return groq_client
+    user_api_key = session.get("user_api_key")
+    if not user_api_key:
+        raise ValueError("API Key no encontrada. Por favor, ingrésala primero.")
+    return Groq(api_key=user_api_key)
+
 
 # Entorno base restringido para la ejecución de código
 BASE_RESTRICTED_ENV = {
@@ -91,6 +92,15 @@ def index():
     message = ""
     code_snippet = ""
     execution_output = ""
+
+    if "api_key" in request.form:
+        api_key = request.form["api_key"].strip()
+        if api_key:
+            session["user_api_key"] = api_key
+            message = "API Key guardada correctamente."
+        else:
+            message = "La API Key no puede estar vacía."
+
 
     if request.method == "POST":
         # Manejo de archivo CSV
@@ -193,6 +203,12 @@ def index():
         preview=preview,
         columns=columns
     )
+
+@app.route("/logout", methods=["GET"])
+def logout():
+    session.pop("user_api_key", None)
+    return redirect(url_for("index"))
+
 
 def build_prompt(context, question):
     return [
@@ -355,4 +371,4 @@ def clean_old_files(max_age=3600):
             logger.error(f"Error del sistema: {str(e)}")
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+    app.run(debug=True)
