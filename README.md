@@ -23,6 +23,7 @@ docker run -d -p 80:80 --name chat-csv-prueba1 chat-con-datos
 
 1. Subida de archivo CSV e ingreso de preguntas
 ![Inicio](./prueba_funcionamiento/prueba1.png)
+
 2. Visualización del código generado por IA
 ![Respuesta](./prueba_funcionamiento/prueba2.png)
 

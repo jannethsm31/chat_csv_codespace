@@ -7,7 +7,7 @@ FROM python:3.12.1-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Hace que la salida de print() se muestre inmediatamente en consola (sin esperar).
-ENV PYTHONUNBUFFERED=1 
+ENV PYTHONUNBUFFERED=1
 
 # Crear directorio de trabajo
 WORKDIR /app
