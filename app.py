@@ -10,6 +10,7 @@ from groq import Groq
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
+import sqlite3
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -105,39 +106,83 @@ def index():
     if request.method == "POST":
         # Manejo de archivo CSV
         if "file" in request.files:
+            # Eliminar archivo anterior y limpiar metadata
+            old_metadata = session.get("file_metadata")
+            if old_metadata and "filename" in old_metadata:
+                old_path = os.path.join(app.config["UPLOAD_FOLDER"], old_metadata["filename"])
+                try:
+                    if os.path.exists(old_path):
+                        os.remove(old_path)
+                        logger.info(f"Archivo anterior eliminado: {old_path}")
+                except Exception as e:
+                    logger.warning(f"No se pudo eliminar el archivo anterior: {str(e)}")
+
+            session.pop("file_metadata", None)
+
             file = request.files["file"]
             if not file.filename:
                 message = "No se seleccionó ningún archivo."
-            elif not file.filename.endswith(".csv"):
-                message = "Por favor, sube un archivo CSV válido."
+            elif not (file.filename.endswith(".csv") or file.filename.endswith(".db")):
+                message = "Por favor, sube un archivo CSV o DB válido."
             else:
                 try:
                     filename = secure_filename(file.filename)
                     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                     file.save(filepath)
 
-                    try:
+                    if filename.endswith(".csv"):
                         df = pd.read_csv(filepath)
-                        # Almacenar metadatos en la sesión
                         session['file_metadata'] = {
                             'filename': filename,
+                            'filetype': 'csv',
                             'columns': list(df.columns),
                             'row_count': len(df),
                             'preview': df.head(5).to_dict(orient='records')
                         }
-                        message = f"Archivo '{filename}' cargado correctamente."
-                    except pd.errors.EmptyDataError:
-                        message = "El archivo CSV está vacío."
-                    except pd.errors.ParserError as pe:
-                        message = f"Error al analizar CSV: {str(pe)}"
-                    except UnicodeDecodeError:
-                        message = "Error de codificación: el archivo debe estar en UTF-8."
-                    except Exception as e:
-                        logger.exception("Error inesperado al leer el archivo CSV")
-                        message = "Error interno al procesar el archivo."
-                except (OSError, PermissionError) as e:
-                    logger.error(f"Error al guardar archivo: {str(e)}")
-                    message = "Error al guardar el archivo. Inténtalo de nuevo."
+                        message = f"Archivo CSV '{filename}' cargado correctamente."
+                        return redirect(url_for("index"))
+
+                    elif filename.endswith(".db"):
+                        conn = sqlite3.connect(filepath)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                        table_list = [row[0] for row in cursor.fetchall()]
+                        conn.close()
+
+                        session['file_metadata'] = {
+                            'filename': filename,
+                            'filetype': 'db',
+                            'tables': table_list
+                        }
+                        message = f"Archivo DB '{filename}' cargado correctamente. Selecciona una tabla."
+                        return redirect(url_for("index"))
+                except Exception as e:
+                    logger.exception("Error al procesar el archivo")
+                    message = "Error interno al procesar el archivo."
+
+        if request.form.get("selected_table") and session.get("file_metadata", {}).get("filetype") == "db":
+            try:
+                print(session['file_metadata'])
+                selected_table = request.form["selected_table"]
+                filepath = os.path.join(app.config["UPLOAD_FOLDER"], session['file_metadata']['filename'])
+                conn = sqlite3.connect(filepath)
+                df = pd.read_sql_query(f"SELECT * FROM {selected_table}", conn)
+                conn.close()
+
+                metadata = session.get('file_metadata', {}).copy()
+                metadata.update({
+                    'columns': list(df.columns),
+                    'row_count': len(df),
+                    'preview': df.head(5).to_dict(orient='records'),
+                    'selected_table': selected_table
+                })
+                session['file_metadata'] = metadata
+
+                message = f"Tabla '{selected_table}' cargada correctamente desde archivo DB."
+            except Exception as e:
+                logger.exception("Error al cargar tabla de DB")
+                message = "Error al cargar la tabla seleccionada desde el archivo .db."
+
 
         # Manejo de pregunta
         if request.form.get("question"):
@@ -149,11 +194,31 @@ def index():
             if 'file_metadata' in session:
                 try:
                     # Cargar el DataFrame desde el archivo guardado
-                    filepath = os.path.join(
-                        app.config["UPLOAD_FOLDER"], 
-                        session['file_metadata']['filename']
-                    )
-                    df = pd.read_csv(filepath)
+                    filepath = os.path.join(app.config["UPLOAD_FOLDER"], session['file_metadata']['filename'])
+
+                    if session['file_metadata']['filetype'] == 'csv':
+                        df = pd.read_csv(filepath)
+                    elif session['file_metadata']['filetype'] == 'db':
+                        selected_table = session['file_metadata'].get('selected_table')
+                        print(f"Tabla seleccionada: {selected_table}")
+                        if not selected_table:
+                            message = "Por favor, selecciona una tabla de la base de datos antes de hacer preguntas."
+                            preview = session.get('file_metadata', {}).get('preview', [])
+                            columns = session.get('file_metadata', {}).get('columns', [])
+                            return render_template(
+                                "index.html",
+                                message=message,
+                                code_snippet=code_snippet,
+                                response=execution_output,
+                                preview=preview,
+                                columns=columns,
+                                tables=session.get('file_metadata', {}).get('tables', [])
+                            )
+
+                        conn = sqlite3.connect(filepath)
+                        df = pd.read_sql_query(f"SELECT * FROM {selected_table}", conn)
+                        conn.close()
+
 
                     # Construir contexto para la IA
                     context = (
@@ -201,12 +266,28 @@ def index():
         code_snippet=code_snippet,
         response=execution_output,
         preview=preview,
-        columns=columns
+        columns=columns,
+        tables=session.get('file_metadata', {}).get('tables', [])
     )
+
 
 @app.route("/logout", methods=["GET"])
 def logout():
     session.pop("user_api_key", None)
+    return redirect(url_for("index"))
+
+@app.route("/delete-file", methods=["POST"])
+def delete_file():
+    metadata = session.get("file_metadata")
+    if metadata and "filename" in metadata:
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], metadata["filename"])
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception as e:
+            logger.warning(f"No se pudo eliminar el archivo: {str(e)}")
+
+    session.pop("file_metadata", None)
     return redirect(url_for("index"))
 
 

@@ -14,37 +14,71 @@
 </head>
 <body>
 <div class="container chatbot-container">
-    <h1 class="mb-4 text-center">💬 Chat con tu archivo CSV</h1>
+    <h1 class="mb-4 text-center">💬 Chat con tu archivo CSV O DB</h1>
 
     <div class="alert alert-warning">
         <strong>Nota de seguridad:</strong> El código generado se ejecuta en un entorno restringido.
     </div>
 
-    <form method="POST" class="mb-4">
-        <div class="card border-primary">
-            <div class="card-header bg-primary text-white">🔐 Tu API Key de Groq</div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label for="api_key" class="form-label" style="color: white">Ingresa tu API Key</label>
-                    <input type="password" class="form-control" name="api_key" id="api_key"
-                        placeholder="sk-..." required>
-                    <div class="form-text" style="color: white">Tu clave se almacena de forma temporal y segura durante la sesión.</div>
+    <div class="mb-4">
+        <button class="btn w-100 text-start card-header" type="button" data-bs-toggle="collapse" data-bs-target="#collapseApi" aria-expanded="false" aria-controls="collapseApi" style="border-radius: 20px;">
+            🔐 Tu API Key de Groq
+        </button>
+        <div class="collapse" id="collapseApi">
+            <div class="card mt-2"> <!-- Añadimos el card aquí -->
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label for="api_key" class="form-label" style="color: white">Ingresa tu API Key</label>
+                            <input type="password" class="form-control" name="api_key" id="api_key"
+                                placeholder="sk-..." required>
+                            <div class="form-text" style="color: white">Tu clave se almacena de forma temporal y segura durante la sesión.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Guardar clave</button>
+                        {% if session.user_api_key %}
+                            <a href="{{ url_for('logout') }}" class="btn btn-outline-danger ms-2">Eliminar clave</a>
+                        {% endif %}
+                    </form>
                 </div>
-                <button type="submit" class="btn btn-primary">Guardar clave</button>
-                {% if session.user_api_key %}
-                    <a href="{{ url_for('logout') }}" class="btn btn-outline-danger ms-2">Eliminar clave</a>
-                {% endif %}
             </div>
         </div>
-    </form>
+    </div>
 
     <form method="POST" enctype="multipart/form-data" class="mb-4">
         <div class="input-group">
-            <input type="file" name="file" accept=".csv" class="form-control" required>
-            <button class="btn btn-primary" type="submit">Subir CSV</button>
+            <input type="file" name="file" accept=".csv,.db" class="form-control" required>
+            <button class="btn btn-primary" type="submit">Subir archivo</button>
         </div>
-        <div class="form-text">Tamaño máximo: 10MB</div>
+        <div class="form-text">Tamaño máximo: 10MB. Formatos aceptados: CSV, SQLite (.db)</div>
     </form>
+
+    {% if session.file_metadata %}
+        <form method="POST" action="/delete-file" class="mb-4">
+            <button class="btn btn-outline-danger w-100">🗑️ Eliminar archivo actual</button>
+            <div class="form-text text-danger text-center">Eliminará el archivo actual y su información</div>
+        </form>
+    {% endif %}
+
+
+    {% if tables %}
+    <form method="POST" class="mb-4">
+        <div class="card border-info">
+            <div class="card-header bg-info text-dark">📋 Selecciona la tabla de tu base de datos</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="selected_table" class="form-label" style="color: white">Tabla:</label>
+                    <select class="form-control" name="selected_table" id="selected_table" required>
+                        {% for table in tables %}
+                            <option value="{{ table }}">{{ table }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-success">Cargar tabla</button>
+            </div>
+        </div>
+    </form>
+    {% endif %}
+
 
     {% if columns %}
         <div class="card mb-3">

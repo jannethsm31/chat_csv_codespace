@@ -283,3 +283,9 @@ div.dataTables_length select:focus {
 div.dataTables_info {
   margin-top: 10px;
 }
+
+input[type="password"]::placeholder {
+    color: white;
+}
+
+
